@@ -280,8 +280,7 @@ sfold :: (Stream m a -> b -> b) -> b -> Stream m (Stream m a) -> Stream m b
 sfold step acc m = Stream $ \_ stp yld ->
       let yield m1 Nothing = yld (step m1 acc) Nothing
           yield m1 (Just r) =
-            let
-              acc' = step m1 acc
+            let acc' = step m1 acc
             in yld acc' (Just $ sfold step acc' r)
       in (runStream m) Nothing stp yield
 

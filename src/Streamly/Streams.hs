@@ -463,33 +463,6 @@ parbind par m f = go m
                 yield a (Just r) = run $ f a `par` go r
             in g Nothing stp yield
 
--- instance MonadAsync m => Monad (AsyncT m) where
---     return = pure
---     (AsyncT m) >>= f = AsyncT $ parbind par m g
---         where g x = getAsyncT (f x)
---               par = joinStreamVar2 (SVarStyle Conjunction LIFO)
-
-------------------------------------------------------------------------------
--- Applicative
-------------------------------------------------------------------------------
-
--- instance MonadAsync m => Applicative (AsyncT m) where
---     pure = AsyncT . singleton
---     (<*>) = ap
-
-------------------------------------------------------------------------------
--- Functor
-------------------------------------------------------------------------------
-
--- instance Monad m => Functor (AsyncT m) where
---     fmap f (AsyncT (Stream m)) = AsyncT $ Stream $ \_ stp yld ->
---         let yield a Nothing  = yld (f a) Nothing
---             yield a (Just r) = yld (f a) (Just (getAsyncT (fmap f (AsyncT r))))
---         in m Nothing stp yield
-
-------------------------------------------------------------------------------
--- Num
-------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------
 -- ParallelT
@@ -532,36 +505,6 @@ instance Streaming ParallelT where
     toStream = getParallelT
     fromStream = ParallelT
     (=^.^=) = undefined -- ParallelT . sjoin . sfold (joinStreamVar2 (SVarStyle Conjunction FIFO)) sempty
-
--- instance MonadAsync m => Monad (ParallelT m) where
---     return = pure
---     (ParallelT m) >>= f = ParallelT $ parbind par m g
---         where g x = getParallelT (f x)
---               par = joinStreamVar2 (SVarStyle Conjunction FIFO)
-
-------------------------------------------------------------------------------
--- Applicative
-------------------------------------------------------------------------------
-
--- instance MonadAsync m => Applicative (ParallelT m) where
---     pure = ParallelT . singleton
---     (<*>) = ap
-
-------------------------------------------------------------------------------
--- Functor
-------------------------------------------------------------------------------
-
--- instance Monad m => Functor (ParallelT m) where
---     fmap f (ParallelT (Stream m)) = ParallelT $ Stream $ \_ stp yld ->
---         let yield a Nothing  = yld (f a) Nothing
---             yield a (Just r) = yld (f a)
---                                    (Just (getParallelT (fmap f (ParallelT r))))
---         in m Nothing stp yield
-
-------------------------------------------------------------------------------
--- Num
-------------------------------------------------------------------------------
-
 
 ------------------------------------------------------------------------------
 -- Serially Zipping Streams
