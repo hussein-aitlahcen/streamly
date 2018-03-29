@@ -24,6 +24,7 @@ module Streamly.Core
     , Stream (..)
 
     -- * Construction
+    , sempty
     , singleton
     , scons
     , srepeat
@@ -32,6 +33,10 @@ module Streamly.Core
     -- * Composition
     , interleave
     , roundrobin
+    , concat
+    , sjoin
+    , sinterleave
+    , sfold
 
     -- * Concurrent Stream Vars (SVars)
     , SVar
@@ -78,6 +83,7 @@ import           Data.Maybe                  (isNothing)
 import           Data.Semigroup              (Semigroup(..))
 import           Data.Set                    (Set)
 import qualified Data.Set                    as S
+import Prelude hiding (concat)
 
 ------------------------------------------------------------------------------
 -- Parent child thread communication type
@@ -220,6 +226,9 @@ type MonadAsync m = (MonadIO m, MonadBaseControl IO m, MonadThrow m)
 singleton :: a -> Stream m a
 singleton = flip scons Nothing
 
+sempty :: Stream m a
+sempty = Stream $ \_ stp _ -> stp
+
 scons :: a -> Maybe (Stream m a) -> Stream m a
 scons a r = Stream $ \_ _ yld -> yld a r
 
@@ -245,20 +254,14 @@ snil = Stream $ \_ stp _ -> stp
 -- | '<>' concatenates two streams sequentially i.e. the first stream is
 -- exhausted completely before yielding any element from the second stream.
 instance Semigroup (Stream m a) where
-    m1 <> m2 = go m1
-        where
-        go (Stream m) = Stream $ \_ stp yld ->
-                let stop = (runStream m2) Nothing stp yld
-                    yield a Nothing  = yld a (Just m2)
-                    yield a (Just r) = yld a (Just (go r))
-                in m Nothing stop yield
+    (<>) = concat
 
 ------------------------------------------------------------------------------
 -- Monoid
 ------------------------------------------------------------------------------
 
 instance Monoid (Stream m a) where
-    mempty = Stream $ \_ stp _ -> stp
+    mempty = sempty
     mappend = (<>)
 
 ------------------------------------------------------------------------------
@@ -272,6 +275,36 @@ interleave m1 m2 = Stream $ \_ stp yld -> do
         yield a Nothing  = yld a (Just m2)
         yield a (Just r) = yld a (Just (interleave m2 r))
     (runStream m1) Nothing stop yield
+
+sfold :: (Stream m a -> b -> b) -> b -> Stream m (Stream m a) -> Stream m b
+sfold step acc m = Stream $ \_ stp yld ->
+      let yield m1 Nothing = yld (step m1 acc) Nothing
+          yield m1 (Just r) =
+            let
+              acc' = step m1 acc
+            in yld acc' (Just $ sfold step acc' r)
+      in (runStream m) Nothing stp yield
+
+sinterleave :: Stream m (Stream m a) -> Stream m a
+sinterleave = sjoin . sfold interleave sempty
+
+------------------------------------------------------------------------------
+-- Sequentially join
+------------------------------------------------------------------------------
+
+concat :: Stream m a -> Stream m a -> Stream m a
+concat m1 m2 = sjoin $ scons m1 (Just $ singleton m2)
+
+sjoin :: Stream m (Stream m a) -> Stream m a
+sjoin m = Stream $ \_ stp yld ->
+  let run x = (runStream x) Nothing stp yld
+      yield m1 Nothing = run m1
+      yield m1 (Just rr) = run $ Stream $ \_ stp1 yld1 ->
+        let stop = (runStream $ sjoin rr) Nothing stp1 yld1
+            yield1 a Nothing  = yld1 a (Just $ sjoin rr)
+            yield1 a (Just r) = yld1 a (Just $ sjoin $ scons r (Just rr))
+        in (runStream m1) Nothing stop yield1
+  in (runStream m) Nothing stp yield
 
 ------------------------------------------------------------------------------
 -- Roundrobin
