@@ -66,6 +66,8 @@ library
     hs-source-dirs:    src
     other-modules:     Streamly.Core
                      , Streamly.Streams
+                     , Streamly.Sync
+                     , Streamly.Async
 
     exposed-modules:   Streamly.Prelude
                      , Streamly.Time

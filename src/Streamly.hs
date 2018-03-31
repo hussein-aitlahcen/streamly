@@ -17,6 +17,8 @@ module Streamly
 
       MonadAsync
     , Streaming
+    , SyncStreaming
+    , AsyncStreaming
 
     -- * Product Style Composition
     -- $product
@@ -75,7 +77,10 @@ module Streamly
     )
 where
 
+import Streamly.Core
 import Streamly.Streams
+import Streamly.Sync
+import Streamly.Async
 import Data.Semigroup (Semigroup(..))
 import Control.Applicative (Alternative(..))
 import Control.Monad (MonadPlus(..))

@@ -1,9 +1,9 @@
-{-# LANGUAGE BangPatterns              #-}
-{-# LANGUAGE FlexibleContexts          #-}
-{-# LANGUAGE FlexibleInstances         #-}
-{-# LANGUAGE MultiParamTypeClasses     #-}
-{-# LANGUAGE RankNTypes                #-}
-{-# LANGUAGE UndecidableInstances      #-} -- XXX
+{-# LANGUAGE BangPatterns          #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE UndecidableInstances  #-}
 
 -- |
 -- Module      : Streamly.Prelude
@@ -79,21 +79,23 @@ module Streamly.Prelude
     )
 where
 
-import           Control.Monad (void)
-import           Control.Monad.IO.Class      (MonadIO(..))
-import           Data.Semigroup              (Semigroup(..))
-import           Prelude hiding              (filter, drop, dropWhile, take,
-                                              takeWhile, zipWith, foldr, foldl,
-                                              mapM, mapM_, sequence, all, any,
-                                              sum, product, elem, notElem,
-                                              maximum, minimum, head, last,
-                                              tail, length, null, reverse,
-                                              iterate)
+import           Control.Monad          (void)
+import           Control.Monad.IO.Class (MonadIO (..))
+import           Data.Semigroup         (Semigroup (..))
+import           Prelude                hiding (all, any, drop, dropWhile, elem,
+                                         filter, foldl, foldr, head, iterate,
+                                         last, length, mapM, mapM_, maximum,
+                                         minimum, notElem, null, product,
+                                         reverse, sequence, sum, tail, take,
+                                         takeWhile, zipWith)
 import qualified Prelude
-import qualified System.IO as IO
+import qualified System.IO              as IO
 
+import           Streamly.Async
 import           Streamly.Core
 import           Streamly.Streams
+import           Streamly.Sync
+
 ------------------------------------------------------------------------------
 -- Construction
 ------------------------------------------------------------------------------
@@ -104,7 +106,7 @@ unfoldr step = fromStream . go
     where
     go s = Stream $ \_ stp yld ->
         case step s of
-            Nothing -> stp
+            Nothing     -> stp
             Just (a, b) -> yld a (Just (go b))
 
 -- | Build a Stream by unfolding monadic steps starting from a seed.
@@ -114,7 +116,7 @@ unfoldrM step = fromStream . go
     go s = Stream $ \_ stp yld -> do
         mayb <- step s
         case mayb of
-            Nothing -> stp
+            Nothing     -> stp
             Just (a, b) -> yld a (Just (go b))
 
 -- XXX need eachInterleaved, eachAsync, eachParallel
@@ -198,8 +200,8 @@ foldl step begin done m = get $ go (toStream m) begin
     where
     {-# NOINLINE get #-}
     get m1 =
-        let yield a Nothing  = return $ done a
-            yield _ _ = undefined
+        let yield a Nothing = return $ done a
+            yield _ _       = undefined
          in (runStream m1) Nothing undefined yield
 
     -- Note, this can be implemented by making a recursive call to "go",
@@ -212,7 +214,7 @@ foldl step begin done m = get $ go (toStream m) begin
                 let s = step acc a
                 in case r of
                     Nothing -> yld s Nothing
-                    Just x -> (runStream (go x s)) Nothing undefined yld
+                    Just x  -> (runStream (go x s)) Nothing undefined yld
         in (runStream m1) Nothing stop yield
 
 -- XXX replace the recursive "go" with explicit continuations.
@@ -379,7 +381,7 @@ elem e m = go (toStream m)
     where
     go m1 =
         let stop            = return False
-            yield a Nothing = return (a == e)
+            yield a Nothing  = return (a == e)
             yield a (Just x) = if a == e then return True else go x
         in (runStream m1) Nothing stop yield
 
@@ -389,7 +391,7 @@ notElem e m = go (toStream m)
     where
     go m1 =
         let stop            = return True
-            yield a Nothing = return (a /= e)
+            yield a Nothing  = return (a /= e)
             yield a (Just x) = if a == e then return False else go x
         in (runStream m1) Nothing stop yield
 
@@ -404,7 +406,7 @@ reverse m = fromStream $ go Nothing (toStream m)
     where
     go rev rest = Stream $ \svr stp yld ->
         let stop = case rev of
-                Nothing ->  stp
+                Nothing  ->  stp
                 Just str -> runStream str svr stp yld
             yield a Nothing  = runStream (a `scons` rev) svr stp yld
             yield a (Just x) = runStream (go (Just $ a `scons` rev) x) svr stp yld
@@ -417,7 +419,7 @@ minimum m = go Nothing (toStream m)
     where
     go r m1 =
         let stop            = return r
-            yield a Nothing = return $ min_ a r
+            yield a Nothing  = return $ min_ a r
             yield a (Just x) = go (min_ a r) x
         in (runStream m1) Nothing stop yield
 
@@ -432,7 +434,7 @@ maximum m = go Nothing (toStream m)
     where
     go r m1 =
         let stop            = return r
-            yield a Nothing = return $ max_ a r
+            yield a Nothing  = return $ max_ a r
             yield a (Just x) = go (max_ a r) x
         in (runStream m1) Nothing stop yield
 

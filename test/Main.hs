@@ -265,19 +265,19 @@ main = hspec $ do
      in do
         forM_ [(<>), (<=>), (<|), (<|>)] $ \g ->
             forM_ [fldr, fldl] $ \k ->
-                describe "Bind and compose" $
+                describe "Bind and compose toSerial" $
                     bindAndComposeHierarchy toListSerial (k g)
         forM_ [(<>), (<=>), (<|), (<|>)] $ \g ->
             forM_ [fldr, fldl] $ \k ->
-                describe "Bind and compose" $
+                describe "Bind and compose toInterleaved" $
                     bindAndComposeHierarchy toListInterleaved (k g)
         forM_ [(<>), (<=>), (<|), (<|>)] $ \g ->
             forM_ [fldr, fldl] $ \k ->
-                describe "Bind and compose" $
+                describe "Bind and compose toAsync" $
                     bindAndComposeHierarchy toListAsync (k g)
         forM_ [(<>), (<=>), (<|), (<|>)] $ \g ->
             forM_ [fldr, fldl] $ \k ->
-                describe "Bind and compose" $
+                describe "Bind and compose toParallel" $
                     bindAndComposeHierarchy toListParallel (k g)
 
     -- Nest two lists using different styles of product compositions
@@ -316,10 +316,10 @@ main = hspec $ do
     describe "Stream Ops folded" $ streamOperations $ makeStream2
           ((<>) :: StreamT IO Int -> StreamT IO Int -> StreamT IO Int)
 
-    describe "Serial zipping" $
-        zipOps A.zipWith A.zipWithM zipping
-    describe "Async zipping" $
-        zipOps A.zipAsyncWith A.zipAsyncWithM zippingAsync
+    -- describe "Serial zipping" $
+    --     zipOps A.zipWith A.zipWithM zipping
+    -- describe "Async zipping" $
+    --     zipOps A.zipAsyncWith A.zipAsyncWithM zippingAsync
 
 makeEmptyStream :: (StreamT IO Int, [Int], Int)
 makeEmptyStream = (A.nil, [], 0)
@@ -604,7 +604,7 @@ loops f tsrt hsrt = do
             return x `f` (if x < 3 then loopTail (x + 1) else empty)
 
 bindAndComposeSimple
-    :: (Streaming t, Alternative (t IO), Monad (t IO))
+    :: (AsyncStreaming t, Streaming t, Alternative (t IO), Monad (t IO))
     => (forall a. Ord a => t IO a -> IO [a])
     -> (t IO Int -> t IO Int -> t IO Int)
     -> Spec
