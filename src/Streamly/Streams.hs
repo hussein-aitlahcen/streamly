@@ -5,6 +5,7 @@
 {-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE StandaloneDeriving        #-}
 {-# LANGUAGE UndecidableInstances      #-} -- XXX
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
 -- Module      : Streamly.Streams
@@ -107,6 +108,59 @@ import           Streamly.Core
 class Streaming t where
     toStream :: t m a -> Stream m a
     fromStream :: Stream m a -> t m a
+    combine :: t m a -> t m a -> t m a
+
+instance (Monad m, Streaming t) => Functor (t m) where
+    fmap f = go
+      where
+        go s = fromStream $ Stream $ \_ stp yld ->
+          let yield a Nothing  = yld (f a) Nothing
+              yield a (Just r) = yld (f a) (Just (toStream (go (fromStream r))))
+          in (runStream $ toStream s) Nothing stp yield
+
+instance (Applicative (t m), Streaming t) => Monad (t m) where
+    return = pure
+    s >>= f = fromStream $ Stream $ \_ stp yld ->
+      let run x = (runStream x) Nothing stp yld
+          yield a Nothing  = run $ toStream (f a)
+          yield a (Just r) = run $ toStream $ (f a) `combine` (fromStream r >>= f)
+        in (runStream $ toStream s) Nothing stp yield
+
+instance (Applicative (t m), Streaming t, Num a) => Num (t m a) where
+    fromInteger n = pure (fromInteger n)
+    negate = fmap negate
+    abs    = fmap abs
+    signum = fmap signum
+    (+) = liftA2 (+)
+    (*) = liftA2 (*)
+    (-) = liftA2 (-)
+
+instance (Applicative (t m), Streaming t, Fractional a) => Fractional (t m a) where
+    fromRational n = pure (fromRational n)
+    recip = fmap recip
+    (/) = liftA2 (/)
+
+instance (Applicative (t m), Streaming t, Floating a) => Floating (t m a) where
+    pi = pure pi
+
+    exp  = fmap exp
+    sqrt = fmap sqrt
+    log  = fmap log
+    sin  = fmap sin
+    tan  = fmap tan
+    cos  = fmap cos
+    asin = fmap asin
+    atan = fmap atan
+    acos = fmap acos
+    sinh = fmap sinh
+    tanh = fmap tanh
+    cosh = fmap cosh
+    asinh = fmap asinh
+    atanh = fmap atanh
+    acosh = fmap acosh
+
+    (**)    = liftA2 (**)
+    logBase = liftA2 logBase
 
 ------------------------------------------------------------------------------
 -- Constructing a stream
@@ -278,26 +332,12 @@ deriving instance MonadReader r m => MonadReader r (StreamT m)
 deriving instance MonadState s m => MonadState s (StreamT m)
 
 instance Streaming StreamT where
+    {-# INLINE toStream #-}
     toStream = getStreamT
+    {-# INLINE fromStream #-}
     fromStream = StreamT
-
--- XXX The Functor/Applicative/Num instances for all the types are exactly the
--- same, how can we reduce this boilerplate (use TH)? We cannot derive them
--- from a single base type because they depend on the Monad instance which is
--- different for each type.
-
-------------------------------------------------------------------------------
--- Monad
-------------------------------------------------------------------------------
-
-instance Monad m => Monad (StreamT m) where
-    return = pure
-    (StreamT (Stream m)) >>= f = StreamT $ Stream $ \_ stp yld ->
-        let run x = (runStream x) Nothing stp yld
-            yield a Nothing  = run $ getStreamT (f a)
-            yield a (Just r) = run $ getStreamT (f a)
-                                  <> getStreamT (StreamT r >>= f)
-        in m Nothing stp yield
+    {-# INLINE combine #-}
+    combine = (<>)
 
 ------------------------------------------------------------------------------
 -- Applicative
@@ -306,61 +346,6 @@ instance Monad m => Monad (StreamT m) where
 instance Monad m => Applicative (StreamT m) where
     pure a = StreamT $ scons a Nothing
     (<*>) = ap
-
-------------------------------------------------------------------------------
--- Functor
-------------------------------------------------------------------------------
-
-instance Monad m => Functor (StreamT m) where
-    fmap f (StreamT (Stream m)) = StreamT $ Stream $ \_ stp yld ->
-        let yield a Nothing  = yld (f a) Nothing
-            yield a (Just r) = yld (f a)
-                               (Just (getStreamT (fmap f (StreamT r))))
-        in m Nothing stp yield
-
-------------------------------------------------------------------------------
--- Num
-------------------------------------------------------------------------------
-
-instance (Monad m, Num a) => Num (StreamT m a) where
-    fromInteger n = pure (fromInteger n)
-
-    negate = fmap negate
-    abs    = fmap abs
-    signum = fmap signum
-
-    (+) = liftA2 (+)
-    (*) = liftA2 (*)
-    (-) = liftA2 (-)
-
-instance (Monad m, Fractional a) => Fractional (StreamT m a) where
-    fromRational n = pure (fromRational n)
-
-    recip = fmap recip
-
-    (/) = liftA2 (/)
-
-instance (Monad m, Floating a) => Floating (StreamT m a) where
-    pi = pure pi
-
-    exp  = fmap exp
-    sqrt = fmap sqrt
-    log  = fmap log
-    sin  = fmap sin
-    tan  = fmap tan
-    cos  = fmap cos
-    asin = fmap asin
-    atan = fmap atan
-    acos = fmap acos
-    sinh = fmap sinh
-    tanh = fmap tanh
-    cosh = fmap cosh
-    asinh = fmap asinh
-    atanh = fmap atanh
-    acosh = fmap acosh
-
-    (**)    = liftA2 (**)
-    logBase = liftA2 logBase
 
 ------------------------------------------------------------------------------
 -- InterleavedT
@@ -395,18 +380,12 @@ deriving instance MonadReader r m => MonadReader r (InterleavedT m)
 deriving instance MonadState s m => MonadState s (InterleavedT m)
 
 instance Streaming InterleavedT where
+    {-# INLINE toStream #-}
     toStream = getInterleavedT
+    {-# INLINE fromStream #-}
     fromStream = InterleavedT
-
-instance Monad m => Monad (InterleavedT m) where
-    return = pure
-    (InterleavedT (Stream m)) >>= f = InterleavedT $ Stream $ \_ stp yld ->
-        let run x = (runStream x) Nothing stp yld
-            yield a Nothing  = run $ getInterleavedT (f a)
-            yield a (Just r) = run $ getInterleavedT (f a)
-                                     `interleave`
-                                     getInterleavedT (InterleavedT r >>= f)
-        in m Nothing stp yield
+    {-# INLINE combine #-}
+    combine m1 m2 = InterleavedT $ (toStream m1) `interleave` (toStream m2)
 
 ------------------------------------------------------------------------------
 -- Applicative
@@ -415,61 +394,6 @@ instance Monad m => Monad (InterleavedT m) where
 instance Monad m => Applicative (InterleavedT m) where
     pure a = InterleavedT $ scons a Nothing
     (<*>) = ap
-
-------------------------------------------------------------------------------
--- Functor
-------------------------------------------------------------------------------
-
-instance Monad m => Functor (InterleavedT m) where
-    fmap f (InterleavedT (Stream m)) = InterleavedT $ Stream $ \_ stp yld ->
-        let yield a Nothing  = yld (f a) Nothing
-            yield a (Just r) =
-                yld (f a) (Just (getInterleavedT (fmap f (InterleavedT r))))
-        in m Nothing stp yield
-
-------------------------------------------------------------------------------
--- Num
-------------------------------------------------------------------------------
-
-instance (Monad m, Num a) => Num (InterleavedT m a) where
-    fromInteger n = pure (fromInteger n)
-
-    negate = fmap negate
-    abs    = fmap abs
-    signum = fmap signum
-
-    (+) = liftA2 (+)
-    (*) = liftA2 (*)
-    (-) = liftA2 (-)
-
-instance (Monad m, Fractional a) => Fractional (InterleavedT m a) where
-    fromRational n = pure (fromRational n)
-
-    recip = fmap recip
-
-    (/) = liftA2 (/)
-
-instance (Monad m, Floating a) => Floating (InterleavedT m a) where
-    pi = pure pi
-
-    exp  = fmap exp
-    sqrt = fmap sqrt
-    log  = fmap log
-    sin  = fmap sin
-    tan  = fmap tan
-    cos  = fmap cos
-    asin = fmap asin
-    atan = fmap atan
-    acos = fmap acos
-    sinh = fmap sinh
-    tanh = fmap tanh
-    cosh = fmap cosh
-    asinh = fmap asinh
-    atanh = fmap atanh
-    acosh = fmap acosh
-
-    (**)    = liftA2 (**)
-    logBase = liftA2 logBase
 
 ------------------------------------------------------------------------------
 -- AsyncT
@@ -509,8 +433,11 @@ deriving instance (MonadReader r m, MonadAsync m) => MonadReader r (AsyncT m)
 deriving instance (MonadState s m, MonadAsync m) => MonadState s (AsyncT m)
 
 instance Streaming AsyncT where
+    {-# INLINE toStream #-}
     toStream = getAsyncT
+    {-# INLINE fromStream #-}
     fromStream = AsyncT
+    combine = undefined
 
 {-# INLINE parbind #-}
 parbind
@@ -527,7 +454,7 @@ parbind par m f = go m
                 yield a (Just r) = run $ f a `par` go r
             in g Nothing stp yield
 
-instance MonadAsync m => Monad (AsyncT m) where
+instance {-# OVERLAPS #-} MonadAsync m => Monad (AsyncT m) where
     return = pure
     (AsyncT m) >>= f = AsyncT $ parbind par m g
         where g x = getAsyncT (f x)
@@ -540,60 +467,6 @@ instance MonadAsync m => Monad (AsyncT m) where
 instance MonadAsync m => Applicative (AsyncT m) where
     pure a = AsyncT $ scons a Nothing
     (<*>) = ap
-
-------------------------------------------------------------------------------
--- Functor
-------------------------------------------------------------------------------
-
-instance Monad m => Functor (AsyncT m) where
-    fmap f (AsyncT (Stream m)) = AsyncT $ Stream $ \_ stp yld ->
-        let yield a Nothing  = yld (f a) Nothing
-            yield a (Just r) = yld (f a) (Just (getAsyncT (fmap f (AsyncT r))))
-        in m Nothing stp yield
-
-------------------------------------------------------------------------------
--- Num
-------------------------------------------------------------------------------
-
-instance (MonadAsync m, Num a) => Num (AsyncT m a) where
-    fromInteger n = pure (fromInteger n)
-
-    negate = fmap negate
-    abs    = fmap abs
-    signum = fmap signum
-
-    (+) = liftA2 (+)
-    (*) = liftA2 (*)
-    (-) = liftA2 (-)
-
-instance (MonadAsync m, Fractional a) => Fractional (AsyncT m a) where
-    fromRational n = pure (fromRational n)
-
-    recip = fmap recip
-
-    (/) = liftA2 (/)
-
-instance (MonadAsync m, Floating a) => Floating (AsyncT m a) where
-    pi = pure pi
-
-    exp  = fmap exp
-    sqrt = fmap sqrt
-    log  = fmap log
-    sin  = fmap sin
-    tan  = fmap tan
-    cos  = fmap cos
-    asin = fmap asin
-    atan = fmap atan
-    acos = fmap acos
-    sinh = fmap sinh
-    tanh = fmap tanh
-    cosh = fmap cosh
-    asinh = fmap asinh
-    atanh = fmap atanh
-    acosh = fmap acosh
-
-    (**)    = liftA2 (**)
-    logBase = liftA2 logBase
 
 ------------------------------------------------------------------------------
 -- ParallelT
@@ -633,10 +506,13 @@ deriving instance (MonadReader r m, MonadAsync m) => MonadReader r (ParallelT m)
 deriving instance (MonadState s m, MonadAsync m) => MonadState s (ParallelT m)
 
 instance Streaming ParallelT where
+    {-# INLINE toStream #-}
     toStream = getParallelT
+    {-# INLINE fromStream #-}
     fromStream = ParallelT
+    combine = undefined
 
-instance MonadAsync m => Monad (ParallelT m) where
+instance {-# OVERLAPS #-} MonadAsync m => Monad (ParallelT m) where
     return = pure
     (ParallelT m) >>= f = ParallelT $ parbind par m g
         where g x = getParallelT (f x)
@@ -649,61 +525,6 @@ instance MonadAsync m => Monad (ParallelT m) where
 instance MonadAsync m => Applicative (ParallelT m) where
     pure a = ParallelT $ scons a Nothing
     (<*>) = ap
-
-------------------------------------------------------------------------------
--- Functor
-------------------------------------------------------------------------------
-
-instance Monad m => Functor (ParallelT m) where
-    fmap f (ParallelT (Stream m)) = ParallelT $ Stream $ \_ stp yld ->
-        let yield a Nothing  = yld (f a) Nothing
-            yield a (Just r) = yld (f a)
-                                   (Just (getParallelT (fmap f (ParallelT r))))
-        in m Nothing stp yield
-
-------------------------------------------------------------------------------
--- Num
-------------------------------------------------------------------------------
-
-instance (MonadAsync m, Num a) => Num (ParallelT m a) where
-    fromInteger n = pure (fromInteger n)
-
-    negate = fmap negate
-    abs    = fmap abs
-    signum = fmap signum
-
-    (+) = liftA2 (+)
-    (*) = liftA2 (*)
-    (-) = liftA2 (-)
-
-instance (MonadAsync m, Fractional a) => Fractional (ParallelT m a) where
-    fromRational n = pure (fromRational n)
-
-    recip = fmap recip
-
-    (/) = liftA2 (/)
-
-instance (MonadAsync m, Floating a) => Floating (ParallelT m a) where
-    pi = pure pi
-
-    exp  = fmap exp
-    sqrt = fmap sqrt
-    log  = fmap log
-    sin  = fmap sin
-    tan  = fmap tan
-    cos  = fmap cos
-    asin = fmap asin
-    atan = fmap atan
-    acos = fmap acos
-    sinh = fmap sinh
-    tanh = fmap tanh
-    cosh = fmap cosh
-    asinh = fmap asinh
-    atanh = fmap atanh
-    acosh = fmap acosh
-
-    (**)    = liftA2 (**)
-    logBase = liftA2 logBase
 
 ------------------------------------------------------------------------------
 -- Serially Zipping Streams
@@ -743,60 +564,17 @@ newtype ZipStream m a = ZipStream {getZipStream :: Stream m a}
 
 deriving instance MonadAsync m => Alternative (ZipStream m)
 
-instance Monad m => Functor (ZipStream m) where
-    fmap f (ZipStream (Stream m)) = ZipStream $ Stream $ \_ stp yld ->
-        let yield a Nothing  = yld (f a) Nothing
-            yield a (Just r) = yld (f a)
-                               (Just (getZipStream (fmap f (ZipStream r))))
-        in m Nothing stp yield
-
 instance Monad m => Applicative (ZipStream m) where
     pure = ZipStream . srepeat
     (<*>) = zipWith id
 
 instance Streaming ZipStream where
+    {-# INLINE toStream #-}
     toStream = getZipStream
+    {-# INLINE fromStream #-}
     fromStream = ZipStream
-
-instance (Monad m, Num a) => Num (ZipStream m a) where
-    fromInteger n = pure (fromInteger n)
-
-    negate = fmap negate
-    abs    = fmap abs
-    signum = fmap signum
-
-    (+) = liftA2 (+)
-    (*) = liftA2 (*)
-    (-) = liftA2 (-)
-
-instance (Monad m, Fractional a) => Fractional (ZipStream m a) where
-    fromRational n = pure (fromRational n)
-
-    recip = fmap recip
-
-    (/) = liftA2 (/)
-
-instance (Monad m, Floating a) => Floating (ZipStream m a) where
-    pi = pure pi
-
-    exp  = fmap exp
-    sqrt = fmap sqrt
-    log  = fmap log
-    sin  = fmap sin
-    tan  = fmap tan
-    cos  = fmap cos
-    asin = fmap asin
-    atan = fmap atan
-    acos = fmap acos
-    sinh = fmap sinh
-    tanh = fmap tanh
-    cosh = fmap cosh
-    asinh = fmap asinh
-    atanh = fmap atanh
-    acosh = fmap acosh
-
-    (**)    = liftA2 (**)
-    logBase = liftA2 logBase
+    {-# INLINE combine #-}
+    combine = (<>)
 
 ------------------------------------------------------------------------------
 -- Parallely Zipping Streams
@@ -830,60 +608,16 @@ newtype ZipAsync m a = ZipAsync {getZipAsync :: Stream m a}
 
 deriving instance MonadAsync m => Alternative (ZipAsync m)
 
-instance Monad m => Functor (ZipAsync m) where
-    fmap f (ZipAsync (Stream m)) = ZipAsync $ Stream $ \_ stp yld ->
-        let yield a Nothing  = yld (f a) Nothing
-            yield a (Just r) = yld (f a)
-                               (Just (getZipAsync (fmap f (ZipAsync r))))
-        in m Nothing stp yield
-
 instance MonadAsync m => Applicative (ZipAsync m) where
     pure = ZipAsync . srepeat
     (<*>) = zipAsyncWith id
 
 instance Streaming ZipAsync where
+    {-# INLINE toStream #-}
     toStream = getZipAsync
+    {-# INLINE fromStream #-}
     fromStream = ZipAsync
-
-instance (MonadAsync m, Num a) => Num (ZipAsync m a) where
-    fromInteger n = pure (fromInteger n)
-
-    negate = fmap negate
-    abs    = fmap abs
-    signum = fmap signum
-
-    (+) = liftA2 (+)
-    (*) = liftA2 (*)
-    (-) = liftA2 (-)
-
-instance (MonadAsync m, Fractional a) => Fractional (ZipAsync m a) where
-    fromRational n = pure (fromRational n)
-
-    recip = fmap recip
-
-    (/) = liftA2 (/)
-
-instance (MonadAsync m, Floating a) => Floating (ZipAsync m a) where
-    pi = pure pi
-
-    exp  = fmap exp
-    sqrt = fmap sqrt
-    log  = fmap log
-    sin  = fmap sin
-    tan  = fmap tan
-    cos  = fmap cos
-    asin = fmap asin
-    atan = fmap atan
-    acos = fmap acos
-    sinh = fmap sinh
-    tanh = fmap tanh
-    cosh = fmap cosh
-    asinh = fmap asinh
-    atanh = fmap atanh
-    acosh = fmap acosh
-
-    (**)    = liftA2 (**)
-    logBase = liftA2 logBase
+    combine = undefined
 
 -------------------------------------------------------------------------------
 -- Type adapting combinators
